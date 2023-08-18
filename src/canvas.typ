@@ -6,6 +6,7 @@
 #import "coordinate.typ"
 #import "styles.typ"
 #import "path-util.typ"
+#import "@preview/oxifmt:0.2.0": strfmt
 
 // Compute bounding box of points
 #let bounding-box(pts, init: none) = {
@@ -36,73 +37,13 @@
 }
 
 
-// Recursive element traversal function which takes the current ctx, bounds and also returns them (to allow modifying function locals of the root scope)
 #let process-element(element, ctx) = {
-  if element == none { return }
   let drawables = ()
   let bounds = none
-  let anchors = (:)
 
-  // Allow to modify the context
-  if "before" in element {
-    ctx = (element.before)(ctx)
-  }
-
-  if "style" in element {
-    ctx.style = styles.resolve(
-      ctx.style,
-      if type(element.style) == "function" {
-        (element.style)(ctx)
-      } else {
-        element.style
-      }
-    )
-  }
-
-  if "push-transform" in element {
-    if type(element.push-transform) == "function" {
-      ctx.transform = (element.push-transform)(ctx)
-    } else {
-      ctx.transform = matrix.mul-mat(
-        ctx.transform,
-        element.push-transform
-      )
-    }
-  }
-
-  // Render children
-  if "children" in element {
-    let child-drawables = ()
-    let children = if type(element.children) == "function" {
-      (element.children)(ctx)
-    } else {
-      element.children
-    }
-    for child in children {
-      let r = process-element(child, ctx)
-      if r != none {
-        if r.bounds != none {
-          bounds = bounding-box(r.bounds, init: bounds)
-        }
-
-        ctx = r.ctx
-        child-drawables += r.drawables
-      }
-    }
-
-    if "finalize-children" in element {
-      drawables += (element.finalize-children)(ctx, child-drawables)
-    } else {
-      drawables += child-drawables
-    }
-  }
-
-  // Query element for points
-  let coordinates = ()
-  if "coordinates" in element {
+  let coordinates = (if "coordinates" in element {
     for c in element.coordinates {
       c = coordinate.resolve(ctx, c)
-
       // if the first element is `false` don't update the previous point
       if c.first() == false {
         // the format here is `(false, x, y, z)` so get rid of the boolean
@@ -110,142 +51,26 @@
       } else {
         ctx.prev.pt = c
       }
-      coordinates.push(c)
+
+      c
     }
+  },)
 
-    // If the element wants to calculate extra coordinates depending
-    // on it's resolved coordinates, it can use "transform-coordinates".
-    if "transform-coordinates" in element {
-      assert(type(element.transform-coordinates) == "function")
-
-      coordinates = (element.transform-coordinates)(..coordinates)
-    }
-  }
-
-  // Render element
-  if "render" in element {
-    for drawable in (element.render)(ctx, ..coordinates) {
-      // Transform position to absolute
-      drawable.segments = drawable.segments.map(s => {
-        return (s.at(0),) + s.slice(1).map(util.apply-transform.with(ctx.transform))
-      })
-
-      if "bounds" not in drawable {
-        drawable.bounds = path-util.bounds(drawable.segments)
-      } else {
-        drawable.bounds = drawable.bounds.map(util.apply-transform.with(ctx.transform));
-      }
-
-      bounds = bounding-box(drawable.bounds, init: bounds)
-
-      // Push draw command
-      drawables.push(drawable)
-    }
-  }
-
-  // Add default anchors
-  if bounds != none and element.at("add-default-anchors", default: true) {
-    let mid-x = (bounds.l + bounds.r) / 2
-    let mid-y = (bounds.t + bounds.b) / 2
-    anchors += (
-      center: (mid-x, mid-y, 0),
-      left: (bounds.l, mid-y, 0),
-      right: (bounds.r, mid-y, 0),
-      top: (mid-x, bounds.t, 0),
-      bottom: (mid-x, bounds.b, 0),
-      top-left: (bounds.l, bounds.t, 0),
-      top-right: (bounds.r, bounds.t, 0),
-      bottom-left: (bounds.l, bounds.b, 0),
-      bottom-right: (bounds.r, bounds.b, 0),
+  if element.type == "circle" {
+    let style = styles.resolve(ctx.style, element.style, root: "circle")
+    let (cx, cy, z) = coordinates.first()
+    let (r, _) = util.resolve-radius(style.radius).map(util.resolve-number.with(ctx))
+    let transform = (
+      ctx.transform.at(0).at(0), ctx.transform.at(1).at(0),
+      ctx.transform.at(0).at(1), ctx.transform.at(1).at(1),
+      ctx.transform.at(0).at(3), ctx.transform.at(1).at(3)
     )
-
-    // Add alternate names
-    anchors.above = anchors.top
-    anchors.below = anchors.bottom
-  }
-
-  // Query element for (relative) anchors
-  let custom-anchors = if "custom-anchors-ctx" in element {
-    (element.custom-anchors-ctx)(ctx, ..coordinates)
-  } else if "custom-anchors" in element {
-    (element.custom-anchors)(..coordinates)
-  }
-  if custom-anchors != none {
-    for (k, a) in custom-anchors {
-      anchors.insert(k, util.apply-transform(ctx.transform, a)) // Anchors are absolute!
-    }
-  }
-
-  // Query (already absolute) anchors depending on drawable
-  if "custom-anchors-drawables" in element {
-    for (k, a) in (element.custom-anchors-drawables)(drawables) {
-      anchors.insert(k, a)
-    }
-  }
-
-  if "default" not in anchors {
-    anchors.default = if "default-anchor" in element {
-      anchors.at(element.default-anchor)
-    } else if "center" in anchors {
-      anchors.center
-    } else {
-      (0,0,0,1)
-    }
-  }
-
-  if "anchor" in element and element.anchor != none {
-    assert(element.anchor in anchors,
-          message: "Anchor '" + element.anchor + "' not found in " + repr(anchors))
-    let translate = vector.sub(anchors.default, anchors.at(element.anchor))
-    for (i, d) in drawables.enumerate() {
-        drawables.at(i).segments = d.segments.map(
-          s => (s.at(0),) + s.slice(1).map(c => vector.add(translate, c)))
-    }
-
-    for (k, a) in anchors {
-      anchors.insert(k, vector.add(translate, a))
-    }
-
+    drawables.push(strfmt("<circle cx='{}' cy='{}' r='{}' transform='matrix({} {} {} {} {} {})'/>", cx, cy, r, ..transform))
+    drawables.push(strfmt("<rect x='{}' y='{}' width='{}' height='{}' fill='none' stroke='red' transform='matrix({} {} {} {} {} {})'/>", cx - r, cy - r, r*2, r*2, ..transform))
     bounds = bounding-box(
-      (
-        vector.add(
-          translate,
-          (bounds.l, bounds.t)
-        ),
-        vector.add(
-          translate,
-          (bounds.r, bounds.b)
-        )
-      ),
+      ((cx - r, cy - r, z), (cx + r, cy + r, z)).map(util.apply-transform.with(ctx.transform)), 
+      init: bounds
     )
-  }
-
-  if "name" in element and type(element.name) == "string" {
-    ctx.nodes.insert(
-      element.name, 
-      (
-        anchors: anchors,
-        // paths: drawables, // Uncomment as soon as needed
-      )
-    )
-  }
-
-  if ctx.debug and bounds != none {
-    drawables.push(
-      cmd.path(
-        stroke: red, 
-        fill: none, 
-        close: true, 
-        ("line", (bounds.l, bounds.t),
-                 (bounds.r, bounds.t),
-                 (bounds.r, bounds.b),
-                 (bounds.l, bounds.b))
-      ).first()
-    )
-  }
-
-  if "after" in element {
-    ctx = (element.after)(ctx, ..coordinates)
   }
 
   return (bounds: bounds, ctx: ctx, drawables: drawables)
@@ -296,6 +121,7 @@
       matrix.transform-shear-z(.5),
       matrix.transform-scale((x: 1, y: -1, z: 1)),
     ),
+    // transform: matrix.transform-scale((x: 1, y: -1, z: 1)),
 
     // Nodes, stores anchors and paths
     nodes: (:),
@@ -305,12 +131,14 @@
   )
   
   let draw-cmds = ()
+  let boundaries = ()
   for element in body {
     let r = process-element(element, ctx)
     if r != none {
       if r.bounds != none {
         bounds = bounding-box(r.bounds, init: bounds)
       }
+      boundaries.push(r.bounds)
       ctx = r.ctx
       draw-cmds += r.drawables
     }
@@ -320,10 +148,9 @@
   if bounds == none {
     return []
   }
-
   // Final canvas size
-  let width = calc.abs(bounds.r - bounds.l) * length
-  let height = calc.abs(bounds.t - bounds.b) * length
+  let width = calc.abs(bounds.r - bounds.l)
+  let height = calc.abs(bounds.t - bounds.b)
   
   // Offset all element by canvas grow to the bottom/left
   let transform = matrix.transform-translate(
@@ -331,22 +158,46 @@
     -bounds.t, 
     0
   )
-  box(
-    stroke: if debug {green}, 
-    width: width, 
-    height: height, 
-    fill: background, 
-    align(
-      top,
+
+  let size = length / 1pt
+
+  let str = {
+      strfmt("<svg viewBox='{} {} {} {}' xmlns='http://www.w3.org/2000/svg'>", bounds.l, bounds.t, width, height)
+      strfmt("<g stroke-width='{}'>", 1/size)
+      // strfmt("<svg viewBox='{} {} {} {}' xmlns='http://www.w3.org/2000/svg'>", bounds.l*size, bounds.t*size, width*size, height*size)
+      // strfmt("<g transform='scale({})' stroke-width='1pt'>", size, 1/size)
+      // strfmt("<g transform='scale(1 -1)'>")//width/2, -height)
+      // strfmt("<g transform='scale(1 -1) translate({} {})'>", 0, -5)//width/2, -height)
       for d in draw-cmds {
-        d.segments = d.segments.map(s => {
-          return (s.at(0),) + s.slice(1).map(v => {
-            return util.apply-transform(transform, v)
-              .slice(0,2).map(x => ctx.length * x)
-          })
-        })
-        (d.draw)(d)
+        d
       }
-    )
+
+      "</g>"
+      // "<circle cx='5' cy='5' r='1'/>"
+      "</svg>"
+    }
+  str 
+  linebreak()
+  box(
+    stroke: if debug {green},
+    width: width * length,
+    height: height * length,
+    fill: background,
+    {
+      image.decode(str)
+      place(line())
+    }
+    // align(
+    //   top,
+    //   for d in draw-cmds {
+    //     d.segments = d.segments.map(s => {
+    //       return (s.at(0),) + s.slice(1).map(v => {
+    //         return util.apply-transform(transform, v)
+    //           .slice(0,2).map(x => ctx.length * x)
+    //       })
+    //     })
+    //     (d.draw)(d)
+    //   }
+    // )
   )
 }))

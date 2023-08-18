@@ -515,16 +515,23 @@
   // Coordinate check
   let t = coordinate.resolve-system(center)
   ((
+    type: "circle",
     name: name,
-    coordinates: (center, ),
+    coordinates: (center,),
     anchor: anchor,
-    render: (ctx, center) => {
-      let style = styles.resolve(ctx.style, style, root: "circle")
-      let (x, y, z) = center
-      let (rx, ry) = util.resolve-radius(style.radius).map(util.resolve-number.with(ctx))
-      cmd.ellipse(x, y, z, rx, ry, fill: style.fill, stroke: style.stroke)
-    }
+    style: style
   ),)
+  // ((
+  //   name: name,
+  //   coordinates: (center, ),
+  //   anchor: anchor,
+  //   render: (ctx, center) => {
+  //     let style = styles.resolve(ctx.style, style, root: "circle")
+  //     let (x, y, z) = center
+  //     let (rx, ry) = util.resolve-radius(style.radius).map(util.resolve-number.with(ctx))
+  //     cmd.ellipse(x, y, z, rx, ry, fill: style.fill, stroke: style.stroke)
+  //   }
+  // ),)
 }
 
 /// Execute callback for each anchor with the name of the anchor
