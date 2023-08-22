@@ -1,4 +1,5 @@
 #import "vector.typ"
+#import "@preview/oxifmt:0.2.0": strfmt
 
 #let cos(angle) = {
   return calc.round(calc.cos(angle), digits: 10)
@@ -175,4 +176,12 @@
   }
 
   return inverted
+}
+
+#let to-svg(matrix) = {
+  return strfmt("matrix({} {} {} {} {} {})",
+    matrix.at(0).at(0), matrix.at(1).at(0),
+    matrix.at(0).at(1), matrix.at(1).at(1),
+    matrix.at(0).at(3), matrix.at(1).at(3)
+  )
 }

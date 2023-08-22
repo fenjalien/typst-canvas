@@ -36,10 +36,20 @@
   return bounds
 }
 
+#let draw-types = ("circle",)
+
 
 #let process-element(element, ctx) = {
   let drawables = ()
   let bounds = none
+
+  if element.type == "style" {
+
+  }
+
+  if element.type in draw-types and (ctx.style-update != none or ctx.transform-update) {
+
+  }
 
   let coordinates = (if "coordinates" in element {
     for c in element.coordinates {
@@ -60,13 +70,10 @@
     let style = styles.resolve(ctx.style, element.style, root: "circle")
     let (cx, cy, z) = coordinates.first()
     let (r, _) = util.resolve-radius(style.radius).map(util.resolve-number.with(ctx))
-    let transform = (
-      ctx.transform.at(0).at(0), ctx.transform.at(1).at(0),
-      ctx.transform.at(0).at(1), ctx.transform.at(1).at(1),
-      ctx.transform.at(0).at(3), ctx.transform.at(1).at(3)
-    )
-    drawables.push(strfmt("<circle cx='{}' cy='{}' r='{}' transform='matrix({} {} {} {} {} {})'/>", cx, cy, r, ..transform))
-    drawables.push(strfmt("<rect x='{}' y='{}' width='{}' height='{}' fill='none' stroke='red' transform='matrix({} {} {} {} {} {})'/>", cx - r, cy - r, r*2, r*2, ..transform))
+    drawables.push(strfmt("<circle cx='{}' cy='{}' r='{}' style='{}'/>", cx, cy, r, styles.to-svg(style)))
+    if ctx.debug {
+      drawables.push(strfmt("<rect x='{}' y='{}' width='{}' height='{}' fill='none' stroke='red'/>", cx - r, cy - r, r*2, r*2))
+    }
     bounds = bounding-box(
       ((cx - r, cy - r, z), (cx + r, cy + r, z)).map(util.apply-transform.with(ctx.transform)), 
       init: bounds
@@ -115,12 +122,14 @@
     em-size: measure(box(width: 1em, height: 1em), st),
 
     style: styles.default,
+    style-update: styles.default,
 
     // Current transform
     transform: matrix.mul-mat(
       matrix.transform-shear-z(.5),
       matrix.transform-scale((x: 1, y: -1, z: 1)),
     ),
+    transform-update: true,
     // transform: matrix.transform-scale((x: 1, y: -1, z: 1)),
 
     // Nodes, stores anchors and paths
@@ -163,7 +172,7 @@
 
   let str = {
       strfmt("<svg viewBox='{} {} {} {}' xmlns='http://www.w3.org/2000/svg'>", bounds.l, bounds.t, width, height)
-      strfmt("<g stroke-width='{}'>", 1/size)
+      strfmt("<g stroke-width='{}' transform='{}'>", 1/size, matrix.to-svg(ctx.transform))
       // strfmt("<svg viewBox='{} {} {} {}' xmlns='http://www.w3.org/2000/svg'>", bounds.l*size, bounds.t*size, width*size, height*size)
       // strfmt("<g transform='scale({})' stroke-width='1pt'>", size, 1/size)
       // strfmt("<g transform='scale(1 -1)'>")//width/2, -height)

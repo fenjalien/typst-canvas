@@ -1,3 +1,5 @@
+#import "@preview/oxifmt:0.2.0": strfmt
+
 #let resolve(current, new, root: none) = {
   let global
   if root != none and type(current) == "dictionary" {
@@ -36,6 +38,14 @@
     }
   }
   return current
+}
+
+#let to-svg(style) = {
+  let (fill, stroke, ..) = style
+  if fill != none {
+    fill = fill.hex()
+  }
+  return strfmt("fill: {}")
 }
 
 #let default = (

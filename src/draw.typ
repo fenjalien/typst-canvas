@@ -34,6 +34,7 @@
   assert.eq(style.pos().len(), 0,
             message: "set-style takes no positional arguments" )
   ((
+    type: "style",
     style: style.named()
   ),)
 }
